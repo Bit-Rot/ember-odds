@@ -8,6 +8,7 @@ let game = newGame();
 let selectedDie = null;
 let drag = null;
 let suppressClick = false;
+const diePositions = new Map();
 
 const hud = document.querySelector('#hud');
 const trail = document.querySelector('#trail');
@@ -39,15 +40,19 @@ function renderHud() {
 const pips = {1:[5], 2:[1,9], 3:[1,5,9], 4:[1,3,7,9], 5:[1,3,5,7,9], 6:[1,3,4,6,7,9]};
 
 function dieFace(die, slotted = false) {
+  const position = diePositions.get(die.id);
+  const placement = position ? ' style="--x:' + position.x + 'px;--y:' + position.y + 'px"' : '';
   const face = pips[die.value].map(pip => '<i style="grid-area:' + Math.ceil(pip / 3) +
     ' / ' + ((pip - 1) % 3 + 1) + '"></i>').join('');
-  return '<button type="button" class="die' + (slotted ? ' slotted' : '') +
-    (die.id === selectedDie ? ' selected' : '') + '" data-die="' + die.id + '" aria-label="Die ' + die.value +
+  return '<button type="button" class="die' + (slotted ? ' slotted' : '') + (position ? ' parked' : '') +
+    (die.id === selectedDie ? ' selected' : '') + '"' + placement + ' data-die="' + die.id + '" aria-label="Die ' + die.value +
     (slotted ? ', in a slot' : '') + '" aria-pressed="' + (die.id === selectedDie) + '">' + face + '</button>';
 }
 
 function slotDisplay(rule) {
   if (rule === '*') return '✧';
+  if (rule === 'O') return 'Odd';
+  if (rule === 'E') return 'Even';
   if (rule === '**' || rule === '***') return '≋';
   if (rule === '3-' || rule === '4-' || rule === '5-') return '≤' + rule[0];
   if (rule.endsWith('+')) return '≥' + rule[0];
@@ -102,7 +107,8 @@ function combatCard(hand, index) {
       '" title="' + slotLabel(rule) + '" aria-label="' + slotLabel(rule) +
       (countdown ? ', ' + label + ' remaining' : '') + '">' +
       (countdown ? '<span>' + label + '</span>' : label) + '</button>' +
-      (dice.length ? '<span class="socket-dice">' + dice.map(die => dieFace(die, true)).join('') + '</span>' : '') + '</div>';
+      (dice.length ? '<span class="socket-dice" data-count="' + dice.length + '">' +
+        dice.map(die => dieFace(die, true)).join('') + '</span>' : '') + '</div>';
   }).join('');
   return '<article class="' + cardClasses(hand) + (ready ? ' ready' : '') + (picked ? ' picked' : '') +
     '" data-hand="' + index + '"><button class="card-cast" data-action="' + (pending ? 'discard' : 'play') +
@@ -173,8 +179,10 @@ function combatView(animate) {
   const reroll = '<button class="reroll' + (selectedDie !== null && battle.rerolls ? ' available' : '') +
     '" data-action="reroll" data-value="" data-drop="reroll" title="Reroll" aria-label="Reroll, ' + battle.rerolls +
     ' remaining"' + disabled(!battle.rerolls || !!pending) + '>' + icon('reroll') + '<b>' + battle.rerolls + '</b></button>';
+  const loose = battle.dice.filter(die => !diePositions.has(die.id));
+  const parked = [...diePositions.keys()].map(id => battle.dice.find(die => die.id === id));
   const dice = '<div class="dice-tray" data-drop="pool" aria-label="Dice pool">' +
-    (battle.dice.length ? battle.dice.map(die => dieFace(die)).join('') : '<span class="dice-empty">• • •</span>') + '</div>';
+    (loose.length ? loose.map(die => dieFace(die)).join('') : '<span class="dice-empty">• • •</span>') + '</div>';
   return '<section class="combat"><div class="arena' + (battle.enemies.length > 1 ? ' elite' : '') + '">' +
     '<div class="turn-label" tabindex="-1">Turn ' + battle.turn + '</div><div class="units">' + playerUnit(animate) +
     '<div class="enemies">' + battle.enemies.map(enemy => enemyUnit(enemy, animate)).join('') + '</div></div>' +
@@ -185,7 +193,8 @@ function combatView(animate) {
     (pending ? button(pending.min ? 'Discard' : 'Discard ' + pending.selected.size, 'confirm-discard','','button primary',pending.selected.size < pending.min) :
       button('End turn','end-turn','','button primary')) + '</div></div>' +
     (pending ? '<div class="pending-note">' + (pending.min ? 'Choose a card to discard' : 'Choose up to two cards to discard') + '</div>' : '') +
-    '<div class="hand" aria-label="Hand">' + battle.hand.map(combatCard).join('') + '</div></div></section>';
+    '<div class="hand" aria-label="Hand">' + battle.hand.map(combatCard).join('') + '</div></div>' +
+    parked.map(die => dieFace(die)).join('') + '</section>';
 }
 
 function screen(title, body, footer = '', className = '', description = '', glyph = '') {
@@ -263,6 +272,10 @@ function roomView(animate) {
 
 function render({animate = false, focus = null} = {}) {
   const previous = room.dataset.phase;
+  if (drag) {
+    drag.ghost?.remove();
+    drag = null;
+  }
   renderHud();
   room.dataset.phase = game.phase;
   room.innerHTML = roomView(animate);
@@ -328,6 +341,7 @@ function settleDie(target, id, point = null) {
     return false;
   }
   const die = placed === true ? source.die : placed;
+  diePositions.delete(id);
   selectedDie = null;
   render({focus:point ? null : '[data-die="' + die.id + '"]'});
   const element = room.querySelector('[data-die="' + die.id + '"]');
@@ -367,6 +381,7 @@ document.addEventListener('click', event => {
     return;
   }
   if (handleAction(action,value)) {
+    if (action === 'end-turn' || game.phase !== 'battle') diePositions.clear();
     selectedDie = null;
     const animate = action === 'play' || action === 'end-turn';
     const safeAction = CSS.escape(action);
@@ -379,17 +394,17 @@ document.addEventListener('click', event => {
 inspect.addEventListener('click',event => { if (event.target === inspect) inspect.close(); });
 
 function dropAt(x, y, id) {
-  const under = document.elementFromPoint(x,y);
-  const exact = under?.closest('[data-drop]');
-  if (exact) return exact;
-  const hand = under?.closest('[data-hand]');
+  for (const element of document.elementsFromPoint(x,y)) {
+    const exact = element.closest('[data-drop="card"],[data-drop="reroll"]');
+    if (exact) return exact;
+  }
   let closest = null;
   let distance = Infinity;
   for (const element of room.querySelectorAll('[data-drop="card"]')) {
     const rect = element.getBoundingClientRect();
     const dx = Math.max(rect.left - x, x - rect.right, 0);
     const dy = Math.max(rect.top - y, y - rect.bottom, 0);
-    if (Math.hypot(dx,dy) > 22 && element.closest('[data-hand]') !== hand) continue;
+    if (Math.hypot(dx,dy) > 22) continue;
     const center = Math.hypot(rect.left + rect.width / 2 - x, rect.top + rect.height / 2 - y);
     if (center < distance && game.canPlace(id,Number(element.dataset.index),Number(element.dataset.socket))) {
       closest = element;
@@ -432,7 +447,7 @@ room.addEventListener('pointermove', event => {
   drag.ghost.style.top = event.clientY + 'px';
   drag.hover?.classList.remove('drop-hover');
   drag.hover = dropAt(event.clientX,event.clientY,drag.id);
-  if (drag.hover?.classList.contains('drag-target') || drag.hover?.dataset.drop === 'pool') drag.hover.classList.add('drop-hover');
+  if (drag.hover?.classList.contains('drag-target')) drag.hover.classList.add('drop-hover');
 });
 
 function stopDrag(event, drop) {
@@ -447,11 +462,17 @@ function stopDrag(event, drop) {
   suppressClick = true;
   setTimeout(() => { suppressClick = false; },0);
   if (!drop) return;
-  const target = dropAt(event.clientX,event.clientY,id);
-  if (target) settleDie(target,id,{x:event.clientX,y:event.clientY});
-  else if (element.classList.contains('slotted')) {
-    settleDie(room.querySelector('[data-drop="pool"]'),id,{x:event.clientX,y:event.clientY});
+  const point = {x:event.clientX,y:event.clientY};
+  const target = dropAt(point.x,point.y,id);
+  if (target) {
+    settleDie(target,id,point);
+    return;
   }
+  if (element.classList.contains('slotted') && !game.returnDie(id)) return;
+  diePositions.delete(id);
+  diePositions.set(id,point);
+  selectedDie = null;
+  render();
 }
 room.addEventListener('pointerup', event => stopDrag(event,true));
 room.addEventListener('pointercancel', event => stopDrag(event,false));

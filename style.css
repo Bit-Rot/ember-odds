@@ -6,6 +6,9 @@
   --gold: #e4bb79;
   --ink: #101112;
   --line: #544139;
+  --socket-size: 52px;
+  --preview-socket-size: 35px;
+  --die-size: 36px;
   --serif: Georgia, 'Times New Roman', serif;
   --sans: 'Trebuchet MS', system-ui, sans-serif;
 }
@@ -271,9 +274,9 @@ h1 { font-size: clamp(30px, 5vw, 52px); line-height: 1.05; letter-spacing: -.024
 .preview-slots > span {
   display: inline-grid;
   place-items: center;
-  min-width: 24px;
-  height: 23px;
-  padding: 0 4px;
+  width: var(--preview-socket-size);
+  height: var(--preview-socket-size);
+  flex: none;
   border: 1px solid color-mix(in srgb,var(--edge),#171717 30%);
   border-radius: 4px;
   background: #161415;
@@ -444,33 +447,54 @@ h1 { font-size: clamp(30px, 5vw, 52px); line-height: 1.05; letter-spacing: -.024
   color: #ffe6b9;
   font: 700 10px var(--sans);
 }
-.combat-slots { display: flex; justify-content: center; gap: 4px; min-height: 35px; padding-top: 2px; }
+.combat-slots { display: flex; justify-content: center; gap: 4px; padding-top: 2px; }
 .empty-card { min-height: 131px; border: 1px dashed #5a493f; border-radius: 8px; background: #1716167a; }
 .socket {
   position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-width: 34px;
-  height: 35px;
+  flex: 0 0 var(--socket-size);
+  width: var(--socket-size);
+  height: var(--socket-size);
   border: 1px dashed #98806a;
   border-radius: 5px;
   background: #100f12;
 }
 .slot-button {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   border: 0;
-  padding: 0 4px;
-  min-height: 100%;
-  min-width: 100%;
+  padding: 0;
   background: transparent;
   color: var(--light);
   font: 700 16px var(--sans);
 }
-.socket.countdown { min-width: 55px; min-height: 35px; height: auto; }
-.countdown .socket-dice { flex-wrap: wrap; justify-content: center; padding: 2px 1px; }
-.socket.countdown:has(.socket-dice) .slot-button { min-width: 18px; padding: 0 2px; }
-.socket-dice { display: flex; gap: 1px; padding: 0 1px; }
-.socket:not(.countdown) .socket-dice { position: absolute; inset: 0; justify-content: center; align-items: center; }
+.socket-dice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+.socket-dice .die { pointer-events: auto; }
+.countdown:has(.socket-dice) .slot-button {
+  align-items: start;
+  font-size: 12px;
+}
+.countdown .socket-dice {
+  --stacked-die-size: 13px;
+  inset: 14px 1px 1px;
+  align-content: center;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+.countdown .socket-dice[data-count="1"], .countdown .socket-dice[data-count="2"] {
+  --stacked-die-size: 19px;
+}
+.countdown .socket-dice:has(.die:nth-child(7)) {
+  --stacked-die-size: 9px;
+}
 .drag-target, .available { border-color: #d7ae72; box-shadow: inset 0 0 8px #eead5455; }
 .drop-hover { border-color: #ffe1a6; box-shadow: 0 0 10px #ffbb70; }
 
@@ -479,8 +503,8 @@ h1 { font-size: clamp(30px, 5vw, 52px); line-height: 1.05; letter-spacing: -.024
   display: inline-grid;
   grid-template: repeat(3,1fr) / repeat(3,1fr);
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: var(--die-size);
+  height: var(--die-size);
   padding: 5px;
   border: 1px solid #fff2bf;
   border-radius: 6px;
@@ -495,8 +519,23 @@ h1 { font-size: clamp(30px, 5vw, 52px); line-height: 1.05; letter-spacing: -.024
 .die.selected { outline: 2px solid #f6ca79; outline-offset: 2px; filter: brightness(1.23); }
 .die.slotted { width: 29px; height: 29px; padding: 4px; }
 .die.slotted i { width: 4px; height: 4px; }
-.countdown .die.slotted { width: clamp(17px,2vw,27px); height: clamp(17px,2vw,27px); padding: 3px; }
-.countdown .die.slotted i { width: 3px; height: 3px; }
+.countdown .die.slotted {
+  width: var(--stacked-die-size);
+  height: var(--stacked-die-size);
+  padding: 1px;
+  border-radius: 2px;
+}
+.countdown .die.slotted i { width: 2px; height: 2px; }
+.countdown .socket-dice:has(.die:nth-child(7)) i { width: 1px; height: 1px; }
+.die.parked {
+  --radius: calc(var(--die-size) / 2);
+  position: fixed;
+  z-index: 10;
+  left: clamp(var(--radius), var(--x), calc(100vw - var(--radius)));
+  top: clamp(var(--radius), var(--y), calc(100dvh - var(--radius)));
+  transform: translate(-50%, -50%);
+}
+.die.parked:is(:hover, :focus-visible, .selected) { z-index: 11; }
 .die.dragging { opacity: .24; }
 .die-ghost {
   position: fixed;
@@ -558,6 +597,7 @@ dialog::backdrop { background: #080708c4; backdrop-filter: blur(3px); }
 .inspect-empty { color: #d8c4a6; }
 
 @media (max-width: 830px) {
+  :root { --socket-size: 45px; }
   .hud { min-height: 51px; }
   .trail { min-height: 40px; }
   .draft { grid-template-columns: 1fr; gap: 10px; }
@@ -568,7 +608,11 @@ dialog::backdrop { background: #080708c4; backdrop-filter: blur(3px); }
   .draft-progress i { width: 8px; height: 8px; }
   .card-text { font-size: 12px; }
 }
+@media (max-width: 730px) {
+  .hand { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
 @media (max-width: 560px) {
+  :root { --preview-socket-size: 27px; --die-size: 27px; }
   #game { background-attachment: scroll; }
   .hud-label { display: none; }
   .hud-button { padding: 5px 7px; }
@@ -584,7 +628,7 @@ dialog::backdrop { background: #080708c4; backdrop-filter: blur(3px); }
   .draft .card-art .glyph { width: 20px; height: 20px; }
   .draft .card-text { font-size: 11px; }
   .draft .preview-slots { gap: 1px; }
-  .draft .preview-slots > span { min-width: 16px; padding: 0 2px; height: 17px; font-size: 10px; }
+  .draft .preview-slots > span { font-size: 10px; }
   .draft .picked-mark { position: absolute; right: 2px; top: 27px; margin-left: 0; font-size: 11px; }
   .scene-panel { padding: 17px 11px; }
   .table { padding: 7px 6px 10px; }
@@ -600,20 +644,19 @@ dialog::backdrop { background: #080708c4; backdrop-filter: blur(3px); }
   .table-top { gap: 3px; grid-template-columns: minmax(0,1fr) minmax(0,auto) minmax(0,1fr); margin-bottom: 6px; }
   .roll-zone { justify-content: center; gap: 4px; }
   .dice-tray { min-width: 52px; max-width: 43vw; gap: 3px; padding: 3px; min-height: 35px; }
-  .die { width: 27px; height: 27px; padding: 3px; }
+  .die { padding: 3px; }
   .die i { width: 4px; height: 4px; }
   .reroll { min-height: 31px; padding: 4px; font-size: 13px; }
   .combat-actions .button { min-height: 33px; padding: 5px 7px; font-size: 12px; }
-  .hand { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; }
+  .hand { gap: 5px; }
   .hand .card, .empty-card { min-height: 120px; }
   .hand .card { padding: 4px; }
   .hand .card-name { font-size: 13px; }
   .hand .card-art { min-height: 24px; }
   .hand .card-art .glyph { width: 20px; height: 20px; }
   .hand .card-text { font-size: 11px; }
-  .hand .socket, .hand .combat-slots { height: 30px; min-height: 30px; }
-  .hand .socket { min-width: 29px; }
-  .hand .combat-slots, .hand .socket.countdown { height: auto; }
+  .hand .combat-slots { gap: 3px; }
+  .slot-button { font-size: 14px; }
   .die.slotted { width: 24px; height: 24px; }
   .die.slotted i { width: 3px; height: 3px; }
 }
@@ -627,9 +670,11 @@ dialog::backdrop { background: #080708c4; backdrop-filter: blur(3px); }
   .trail-step.current .trail-name { display: none; }
 }
 @media (max-width: 560px) and (max-height: 660px) {
-  .arena { min-height: 141px; padding-top: 20px; }
-  .unit .sprite, .elite .unit .sprite { height: 70px; }
+  .arena { min-height: 126px; padding-top: 16px; }
+  .unit .sprite, .elite .unit .sprite { height: 56px; }
   .unit-name { white-space: nowrap; }
+  .table { padding-bottom: 7px; }
+  .table-top { min-height: 36px; margin-bottom: 5px; }
   .hand .card, .empty-card { min-height: 111px; }
   .hand .card-art { display: none; }
   .hand .card-name { margin-bottom: 4px; }

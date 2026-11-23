@@ -55,8 +55,27 @@ async function drag(page, from, to, offset = 0) {
   assert.ok(start && end);
   await page.mouse.move(start.x + start.width/2, start.y + start.height/2);
   await page.mouse.down();
-  await page.mouse.move(end.x + end.width/2 + offset, end.y + end.height/2,{steps:8});
+  const point = {x:end.x + end.width/2 + offset, y:end.y + end.height/2};
+  await page.mouse.move(point.x,point.y,{steps:8});
   await page.mouse.up();
+  return point;
+}
+
+async function parkedAt(die, point) {
+  assert.equal(await die.evaluate(element => element.classList.contains('parked')),true);
+  const box = await die.boundingBox();
+  assert.ok(Math.abs(box.x + box.width/2 - point.x) <= 1);
+  assert.ok(Math.abs(box.y + box.height/2 - point.y) <= 1);
+}
+
+async function socketSizes(page, expected) {
+  const sizes = await page.locator('.hand .socket').evaluateAll(sockets => sockets.map(socket => {
+    const {width,height,left,right} = socket.getBoundingClientRect();
+    const card = socket.closest('.card').getBoundingClientRect();
+    return {width,height,inside:left >= card.left && right <= card.right};
+  }));
+  assert.ok(sizes.length >= 6);
+  for (const size of sizes) assert.deepEqual(size,{width:expected,height:expected,inside:true});
 }
 
 async function visibleHand(page) {
@@ -81,33 +100,53 @@ async function capture(page,file) {
 
 try {
   const desktop = await open('ember',1280,720);
+  assert.equal(await action(desktop,'draft','uppercut').locator('.preview-slots').innerText(),'Odd');
+  assert.equal(await action(desktop,'draft','balanced').locator('.preview-slots').innerText(),'Even');
   await capture(desktop,'draft-1280');
   await draft(desktop);
   await visibleHand(desktop);
+  await socketSizes(desktop,52);
   await capture(desktop,'combat-1280');
   const dice = desktop.locator('.dice-tray .die');
   const bash = desktop.locator('[data-hand="0"]');
   const strike = desktop.locator('[data-hand="2"]');
   await drag(desktop,dice.first(),bash.locator('.socket'));
   assert.equal(await bash.locator('.die').count(),0,'invalid 3 cannot enter Bash');
-  await drag(desktop,dice.first(),strike.locator('.socket'),28);
+  const die = desktop.locator('[data-die="' + await dice.first().getAttribute('data-die') + '"]');
+  const firstPoint = await drag(desktop,die,strike.locator('.card-name'));
+  await parkedAt(die,firstPoint);
+  assert.equal(await strike.locator('.die').count(),0,'the card body is a free placement area');
+  const other = desktop.locator('[data-die="' + await dice.first().getAttribute('data-die') + '"]');
+  const otherPoint = await drag(desktop,other,desktop.locator('.arena'));
+  await parkedAt(die,firstPoint);
+  await parkedAt(other,otherPoint);
+  await capture(desktop,'parked-dice-1280');
+
+  await drag(desktop,die,strike.locator('.socket'),32);
   assert.equal(await strike.locator('.die').count(),1,'forgiving placement accepts near the socket');
   assert.equal(await strike.locator('.card-cast').isEnabled(),true);
+  await die.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
   await capture(desktop,'armed-card-1280');
-  await drag(desktop,strike.locator('.die'),desktop.locator('.dice-tray'));
+  const removedPoint = await drag(desktop,strike.locator('.die'),desktop.locator('.arena'),150);
   assert.equal(await strike.locator('.die').count(),0,'dragging an assigned die frees it');
-  assert.equal(await dice.count(),3);
-  await drag(desktop,dice.first(),desktop.locator('.reroll'));
+  await parkedAt(die,removedPoint);
+  await parkedAt(other,otherPoint);
+  assert.equal(await dice.count(),1);
+  await drag(desktop,die,desktop.locator('.reroll'));
   assert.equal(await desktop.locator('.reroll').isEnabled(),false);
-  assert.equal(await dice.count(),3);
-  await dice.first().focus();
-  await dice.first().press('Enter');
+  assert.equal(await dice.count(),2);
+  assert.equal(await die.count(),0);
+  await other.focus();
+  await other.press('Enter');
   await action(desktop,'slot','2,0').press('Enter');
   await action(desktop,'play','2').press('Enter');
+  assert.equal(await other.count(),0);
   assert.equal(await dice.count(),2);
   assert.equal(await desktop.locator('.hand .card').count(),6);
+  await drag(desktop,dice.first(),desktop.locator('.arena'));
   await action(desktop,'end-turn').click();
   assert.equal(await desktop.locator('.turn-label').innerText(),'Turn 2');
+  assert.equal(await desktop.locator('.die.parked').count(),0);
   assert.equal(await dice.count(),3);
   await desktop.getByRole('button',{name:'Deck, 12 cards'}).click();
   assert.equal(await desktop.locator('dialog .card').count(),12);
@@ -120,11 +159,46 @@ try {
     await capture(phone,'draft-' + width);
     await draft(phone);
     await visibleHand(phone);
+    await socketSizes(phone,45);
     await capture(phone,'combat-' + width);
     await phone.locator('.dice-tray .die').first().tap();
     await action(phone,'slot','2,0').tap();
-    assert.equal(await phone.locator('[data-hand="2"] .card-cast').isEnabled(),true);
+    const strike = phone.locator('[data-hand="2"]');
+    assert.equal(await strike.locator('.card-cast').isEnabled(),true);
+    if (width === 390) {
+      const assigned = strike.locator('.die');
+      const id = await assigned.getAttribute('data-die');
+      const from = await assigned.boundingBox();
+      const point = {x:150,y:220};
+      const touch = await phone.context().newCDPSession(phone);
+      await touch.send('Input.dispatchTouchEvent',{type:'touchStart',
+        touchPoints:[{x:from.x + from.width/2,y:from.y + from.height/2}]});
+      await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[point]});
+      await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+      await parkedAt(phone.locator('[data-die="' + id + '"]'),point);
+      assert.equal(await strike.locator('.die').count(),0);
+    }
     await phone.close();
+  }
+
+  for (const [width,height,size] of [[1280,720,52],[320,568,45]]) {
+    const page = await open('slots-123',width,height);
+    for (const key of ['boulder','rapid','balanced']) await action(page,'draft',key).click();
+    await action(page,'confirm-draft').click();
+    await socketSizes(page,size);
+    await visibleHand(page);
+    assert.equal(await action(page,'slot','3,0').innerText(),'Even');
+    assert.equal(await action(page,'slot','5,0').innerText(),'10');
+    for (let i = 0; i < 3; i++) {
+      await page.locator('.dice-tray .die').first().press('Enter');
+      await action(page,'slot','5,0').press('Enter');
+      await socketSizes(page,size);
+    }
+    assert.equal(await page.locator('[data-hand="5"] .socket .die').count(),3);
+    assert.equal(await action(page,'play','5').isEnabled(),true);
+    await visibleHand(page);
+    await capture(page,'countdown-' + width);
+    await page.close();
   }
 
   const complete = await open('pilot-65',1280,720);
@@ -152,7 +226,7 @@ try {
   assert.equal(await complete.locator('.draft-grid .card').count(),10);
   assert.deepEqual(errors,[]);
   assert.deepEqual(assetFailures,[]);
-  console.log(JSON.stringify({pointer:'passed',keyboard:'passed',touch:'passed',viewports:[1280,390,320],
+  console.log(JSON.stringify({pointer:'passed',keyboard:'passed',touch:'passed',parking:'passed',squareSlots:'passed',viewports:[1280,390,320],
     run:'victory',actions:actions.length,remainingHP:game.hp,phases:[...phases]}));
 } finally {
   await browser.close();
