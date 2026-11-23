@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "inputs": ["WebPrototype"],
+  "steps": [
+    {
+      "id": "ember-odds-rules",
+      "script": "WebPrototype/test/game.test.mjs",
+      "timeout_ms": 10000
+    }
+  ]
+}
